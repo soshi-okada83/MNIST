@@ -2,6 +2,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 # データ準備
@@ -33,21 +34,21 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False)
 # モデル定義
 
 # Netというニューラルネットワークのクラスを定義。
-# 'nn.Module'を継承して作成。PyTorchの全てのモデルは'nn.Module'を元に作る。
-# __init__はPythonのコンストラクタ（初期化処理）。
-# super()で親クラス(nn.Module)の初期化も忘れずに呼び出す。
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.fc1 = nn.Linear(28 * 28, 128) # 1層目 入力28x28=784次元 -> 出力128次元
-        self.fc2 = nn.Linear(128, 64) # 2層目 128次元 -> 64次元 中間層。学習の表現力を高めるために使われる。
-        self.fc3 = nn.Linear(64, 10) # 3層目 64次元 -> 10次元(0~9の数字) 出力層。最終的に、各数字に対するスコア（logits）を出力。
-
+        self.conv1 = nn.Conv2d(1, 16, 3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(16, 32, 3, padding=1)
+        self.fc1 = nn.Linear(32 * 7 * 7, 128)
+        self.fc2 = nn.Linear(128, 10)
+        
     def forward(self, x):
-        x = x.view(-1, 28 * 28) # 画像は[バッチサイズ, 1, 28, 28]の4次元テンソル。[バッチサイズ, 784]の2次元にreshape(展開)して, 'Linear'層に入れられるようにする。
-        x = torch.relu(self.fc1(x)) #1層目に通し、ReLu活性化関数を適用。
-        x = torch.relu(self.fc2(x)) #2層目にもReLuを通す。ReLu(正規化線形関数)は勾配消失を起こしにくく学習が進みやすい。
-        x = self.fc3(x) # 出力層へ。活性化関数を通さない（損失関数 CrossEntropyLossが内部でSoftmaxを適用するため）。
+        x = self.pool(torch.relu(self.conv1(x))) # [1, 28, 28] -> [16, 14, 14]
+        x = self.pool(torch.relu(self.conv2(x))) # -> [32, 7, 7]
+        x = x.view(-1, 32 * 7 * 7)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
         return x
 
 net = Net()
@@ -64,15 +65,15 @@ criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(net.parameters(), lr=0.001)
 
 # 学習ループ
-epochs = 5
+epochs = 30 # エポック数 = 30回繰り返す
 for epoch in range(epochs):
     running_loss = 0.0
     for images, labels in trainloader:
-        optimizer.zero_grad()
-        outputs = net(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad() # 勾配リセット
+        outputs = net(images) # 順伝播
+        loss = criterion(outputs, labels) # 損失関数
+        loss.backward() # 勾配計算（逆伝播）
+        optimizer.step() # パラメータ更新
         running_loss += loss.item()
 
     print(f"[{epoch+1}/{epochs}] loss: {running_loss/len(trainloader):.4f}")
